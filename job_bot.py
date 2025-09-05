@@ -1,13 +1,16 @@
 from telegram import (
     Update,
     ReplyKeyboardMarkup,
-    ReplyKeyboardRemove
+    ReplyKeyboardRemove,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup
 )
 from telegram.ext import (
     Application,
     CommandHandler,
     MessageHandler,
     ContextTypes,
+    CallbackQueryHandler,
     filters
 )
 import datetime
@@ -17,11 +20,10 @@ import json
 TOKEN = os.environ.get("TOKEN")
 BOT_HOUR = int(os.environ.get("BOT_HOUR", 13))
 BOT_MIN = int(os.environ.get("BOT_MIN", 0))
-
 DATA_FILE = "user_data.json"
 
+# ===== Работа с файлами =====
 
-# ====== Работа с файлами ======
 
 def load_data():
     if os.path.exists(DATA_FILE):
@@ -37,90 +39,87 @@ def save_data():
 
 user_data = load_data()
 
+# ===== Команды =====
 
-# ====== Команды ======
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = str(update.effective_chat.id)
     if chat_id not in user_data:
         user_data[chat_id] = {"friend_chat_id": None}
         save_data()
+
+    # кнопка "Спроси меня сейчас"
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("Спроси меня сейчас", callback_data="ask_now")]
+    ])
+
     await update.message.reply_text(
-        "Bot activated 🎀. Установи подругу командой: /setfriend <chat_id>"
+        "Bot activated 🎀. Установи подругу командой: /setfriend <chat_id>\n"
+        "Нажми кнопку, чтобы получить вопрос прямо сейчас",
+        reply_markup=keyboard
     )
 
 
 async def set_friend(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = str(update.effective_chat.id)
-
     if not context.args:
         await update.message.reply_text(
-            "Используй так: /setfriend <chat_id>. "
-            "Узнать chat_id можно через бота @RawDataBot."
+            "Используй так: /setfriend <chat_id>. Узнать chat_id можно через бота @RawDataBot."
         )
         return
-
     friend_chat_id = context.args[0]
-
     if not friend_chat_id.isdigit():
         await update.message.reply_text("chat_id должен быть числом!")
         return
-
     user_data[chat_id]["friend_chat_id"] = friend_chat_id
     save_data()
-    await update.message.reply_text(
-        f"Теперь твоя подруга = {friend_chat_id} 🎀"
-    )
+    await update.message.reply_text(f"Теперь твоя подруга = {friend_chat_id} 🎀")
 
 
 async def whoisfriend(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = str(update.effective_chat.id)
-
     if chat_id not in user_data:
         await update.message.reply_text("Ты ещё не зарегистрирован. Напиши /start.")
         return
-
     friend_chat_id = user_data[chat_id].get("friend_chat_id")
     if friend_chat_id:
-        await update.message.reply_text(
-            f"У тебя сохранён friend_chat_id = {friend_chat_id} 🎀"
-        )
+        await update.message.reply_text(f"У тебя сохранён friend_chat_id = {friend_chat_id} 🎀")
     else:
         await update.message.reply_text("У тебя пока не задан друг. Напиши /setfriend <chat_id>.")
 
+# ===== Ежедневный вопрос =====
 
-# ====== Ежедневный вопрос ======
 
-async def daily_question(context: ContextTypes.DEFAULT_TYPE):
+async def daily_question(context: ContextTypes.DEFAULT_TYPE, specific_chat=None):
     app = context.application
-    for main_user, info in user_data.items():
+    targets = [specific_chat] if specific_chat else list(user_data.keys())
+
+    for chat_id in targets:
         keyboard = ReplyKeyboardMarkup([["Yes", "No"]], resize_keyboard=True)
 
         if os.path.exists("image.jpg"):
             with open("image.jpg", "rb") as photo:
                 await app.bot.send_photo(
-                    chat_id=int(main_user),
+                    chat_id=int(chat_id),
                     photo=photo,
                     caption="Have you applied for 40 jobs today, girl? 🎀",
                     reply_markup=keyboard
                 )
         else:
             await app.bot.send_message(
-                chat_id=int(main_user),
+                chat_id=int(chat_id),
                 text="Have you applied for 40 jobs today, girl? 🎀",
                 reply_markup=keyboard
             )
 
+# ===== Ответы =====
 
-# ====== Ответы ======
 
 async def handle_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = str(update.effective_chat.id)
     text = update.message.text.strip().lower()
-
     if chat_id not in user_data:
         return
-
     friend_chat_id = user_data[chat_id].get("friend_chat_id")
 
     if text == "yes":
@@ -136,7 +135,6 @@ async def handle_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "you go girl! 1 step away from poverty 🎀",
                 reply_markup=ReplyKeyboardRemove()
             )
-
         if friend_chat_id:
             await context.bot.send_message(
                 chat_id=int(friend_chat_id),
@@ -156,15 +154,23 @@ async def handle_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "you ARE cringe for not trying, you will die out of poverty",
                 reply_markup=ReplyKeyboardRemove()
             )
-
         if friend_chat_id:
             await context.bot.send_message(
                 chat_id=int(friend_chat_id),
                 text="make her not die poor! pretty please 🥹"
             )
 
+# ===== Кнопка "Спроси меня сейчас" =====
 
-# ====== Запуск ======
+
+async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    if query.data == "ask_now":
+        await daily_question(context, specific_chat=str(update.effective_chat.id))
+
+# ===== Запуск =====
+
 
 def main():
     app = Application.builder().token(TOKEN).build()
@@ -174,7 +180,9 @@ def main():
     app.add_handler(CommandHandler("whoisfriend", whoisfriend))
     app.add_handler(MessageHandler(
         filters.TEXT & ~filters.COMMAND, handle_answer))
+    app.add_handler(CallbackQueryHandler(button_callback))
 
+    # ежедневный вопрос по времени
     app.job_queue.run_daily(
         daily_question,
         time=datetime.time(hour=BOT_HOUR, minute=BOT_MIN)
