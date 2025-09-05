@@ -2,8 +2,11 @@ from telegram import Update, ReplyKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 import datetime
 import asyncio
+import os
 
-TOKEN = '8410155059:AAGunUedbT0VdrynbO7o-kIwj_p4fzlOQ-s'
+TOKEN = os.environ.get("TOKEN")
+BOT_HOUR = int(os.environ.get("BOT_HOUR", 13))
+BOT_MIN = int(os.environ.get("BOT_MIN",0))
 
 user_data = {
     "main_user": None,
